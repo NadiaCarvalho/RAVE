@@ -3,7 +3,7 @@ import sys
 from absl import app
 
 AVAILABLE_SCRIPTS = [
-    'preprocess', 'train', 'export', 'export_onnx', 'remote_dataset'
+    'preprocess', 'train', 'export', 'export_onnx', 'remote_dataset'. 'latent'
 ]
 
 
