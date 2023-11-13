@@ -44,5 +44,9 @@ def main():
         from scripts import remote_dataset
         sys.argv[0] = remote_dataset.__name__
         app.run(remote_dataset.main)
+    elif command == 'latent':
+        from scripts import latent
+        sys.argv[0] = latent.__name__
+        app.run(latent.main)
     else:
         raise Exception(f'Command {command} not found')
