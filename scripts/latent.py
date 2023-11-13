@@ -75,3 +75,79 @@ flags.DEFINE_float('ema',
 flags.DEFINE_bool('progress',
                   default=True,
                   help='Display training progress bar')
+
+def main(argv):
+  torch.set_float32_matmul_precision('high')
+  torch.backends.cudnn.benchmark = True
+  gin.parse_config_files_and_bindings(
+      map(add_gin_extension, FLAGS.config),
+      FLAGS.override,
+  )
+
+  model = rave.RAVE()
+
+  print(model)
+
+  if FLAGS.derivative:
+      model.integrator = rave.dataset.get_derivator_integrator(model.sr)[1]
+
+  gin_hash = hashlib.md5(
+      gin.operative_config_str().encode()).hexdigest()[:10]
+
+  RUN_NAME = f'{FLAGS.name}_{gin_hash}'
+
+  os.makedirs(os.path.join("runs", RUN_NAME), exist_ok=True)
+
+  if FLAGS.gpu == [-1]:
+        gpu = 0
+  else:
+      gpu = FLAGS.gpu or rave.core.setup_gpu()
+
+  print('selected gpu:', gpu)
+
+  accelerator = None
+  devices = None
+  if FLAGS.gpu == [-1]:
+      pass
+  elif torch.cuda.is_available():
+      accelerator = "cuda"
+      devices = FLAGS.gpu or rave.core.setup_gpu()
+  elif torch.backends.mps.is_available():
+      print(
+          "Training on mac is not available yet. Use --gpu -1 to train on CPU (not recommended)."
+      )
+      exit()
+      accelerator = "mps"
+      devices = 1
+
+  callbacks = [
+      validation_checkpoint,
+      last_checkpoint,
+      rave.model.WarmupCallback(),
+      rave.model.QuantizeCallback(),
+      rave.core.LoggerCallback(rave.core.ProgressLogger(RUN_NAME)),
+      rave.model.BetaWarmupCallback(),
+  ]
+
+  run = rave.core.search_for_run(FLAGS.ckpt)
+  if run is not None:
+      step = torch.load(run, map_location='cpu')["global_step"]
+      #trainer.fit_loop.epoch_loop._batches_that_stepped = step
+
+  transfer_run = rave.core.search_for_run(FLAGS.transfer_ckpt)
+  if transfer_run is not None:
+      print(f'transferring weights from {transfer_run}')
+      sd = torch.load(transfer_run, map_location='cpu')["state_dict"]
+      msd = model.state_dict()
+      for k in list(sd):
+          if k not in model.state_dict() or sd[k].shape != msd[k].shape:
+              print(f'skipping {k}')
+              sd.pop(k)
+
+
+      model.load_state_dict(sd, strict=False)
+
+  with open(os.path.join("runs", RUN_NAME, "config.gin"), "w") as config_out:
+      config_out.write(gin.operative_config_str())
+
+  print(model)
